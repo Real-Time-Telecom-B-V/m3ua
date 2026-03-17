@@ -2,7 +2,9 @@
 name = "m3ua"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "M3UA (MTP3 User Adaptation Layer) codec per RFC 4666"
+license = "MIT"
+repository = "https://github.com/killdashnine/m3ua"
 
 [dependencies]
+thiserror = "2"
