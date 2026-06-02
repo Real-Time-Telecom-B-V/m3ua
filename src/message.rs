@@ -168,6 +168,34 @@ impl M3uaMessage {
         Self::new(MessageType::Dava, params)
     }
 
+    /// Create a DAUD (Destination Audit) message — an ASP asking the SG
+    /// whether the listed point codes are reachable.
+    pub fn daud(routing_context: Option<u32>, affected_pcs: Vec<u32>) -> Self {
+        let mut params = Vec::new();
+        if let Some(rc) = routing_context {
+            params.push(Parameter::from_u32(tags::ROUTING_CONTEXT, rc));
+        }
+        let mut apc_value = Vec::new();
+        for pc in &affected_pcs {
+            apc_value.extend_from_slice(&pc.to_be_bytes());
+        }
+        params.push(Parameter::new(tags::AFFECTED_POINT_CODE, apc_value));
+        Self::new(MessageType::Daud, params)
+    }
+
+    /// Affected point codes carried in an SSNM message (DUNA/DAVA/DAUD/…),
+    /// decoded from the Affected Point Code parameter (4 octets each).
+    pub fn affected_point_codes(&self) -> Vec<u32> {
+        match parameter::find_parameter(&self.parameters, tags::AFFECTED_POINT_CODE) {
+            Some(p) => p
+                .value
+                .chunks_exact(4)
+                .map(|c| u32::from_be_bytes([c[0], c[1], c[2], c[3]]))
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+
     /// Create an ERR message.
     pub fn error(error_code: u32, routing_context: Option<u32>, diagnostic_info: Option<Vec<u8>>) -> Self {
         let mut params = Vec::new();

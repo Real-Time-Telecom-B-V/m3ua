@@ -20,12 +20,14 @@
 //! let bytes = data.encode();
 //! ```
 
+pub mod asp;
 pub mod error;
 pub mod header;
 pub mod message;
 pub mod parameter;
 pub mod protocol_data;
 
+pub use asp::{Asp, AspAction, AspState};
 pub use error::M3uaError;
 pub use header::{CommonHeader, MessageClass, MessageType, SCTP_PPID, VERSION};
 pub use message::M3uaMessage;
