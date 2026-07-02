@@ -5,10 +5,11 @@
 [![CI](https://github.com/Real-Time-Telecom-B-V/m3ua/actions/workflows/ci.yml/badge.svg)](https://github.com/Real-Time-Telecom-B-V/m3ua/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A pure-Rust **M3UA ([RFC 4666](https://www.rfc-editor.org/rfc/rfc4666.html))**
-codec and SG-side ASP state machine — the **MTP3 User Adaptation Layer** that
-carries SS7 MTP3-User signalling (SCCP, ISUP, …) over IP using SCTP as the
-transport.
+An **M3UA ([RFC 4666](https://www.rfc-editor.org/rfc/rfc4666.html))** codec and
+SG-side ASP state machine — the **MTP3 User Adaptation Layer** that carries SS7
+MTP3-User signalling (SCCP, ISUP, …) over IP using SCTP as the transport. It
+ships as **both** a Rust crate (`cargo add m3ua`) and a Rust-backed Python wheel
+(`pip install m3ua`), built from one source tree and one version.
 
 This crate is the **wire format** (common header, TLV parameters, the Protocol
 Data payload) plus the **pure ASP/AS state machine**. It does no I/O — the SCTP
@@ -39,6 +40,22 @@ let bytes = data.encode();
 let decoded = M3uaMessage::decode(&bytes).unwrap();
 assert_eq!(decoded.routing_context(), Some(42));
 assert_eq!(decoded.protocol_data().unwrap().dpc, 200);
+```
+
+```python
+import m3ua
+
+# ASPSM handshake message.
+aspup = m3ua.M3uaMessage.asp_up(asp_id=1)
+wire = aspup.encode()                                # bytes
+msg = m3ua.decode(wire)                               # -> M3uaMessage
+assert msg.message_type == m3ua.MessageType.AspUp
+
+# A DATA message carrying an MTP3-User payload.
+pd = m3ua.ProtocolData(opc=100, dpc=200, si=3, ni=2, mp=0, sls=5,
+                       user_data=b"\x09\x01")
+data = m3ua.M3uaMessage.data(pd, routing_context=42)
+assert m3ua.decode(data.encode()).protocol_data().dpc == 200
 ```
 
 📖 More: [`docs/OVERVIEW.md`](docs/OVERVIEW.md).
@@ -84,20 +101,51 @@ M3UA's job splits cleanly:
   that speaks SCTP — a SIGTRAN gateway, an STP, a test rig — can host it.
 
 Keeping the codec I/O-free is what makes it trivial to unit-test against
-RFC-derived vectors and to embed unchanged in different transports.
+RFC-derived vectors and to embed unchanged in different transports — and is what
+lets the exact same logic back the Rust crate and the Python wheel.
+
+## Performance
+
+Single-core, `cargo bench` ([`benches/codec.rs`](benches/codec.rs)); the codec
+is allocation-light. Indicative numbers (encode/decode of a DATA with a ~36-byte
+payload, a DUNA, and an ASP-UP):
+
+| Operation | Time | Throughput |
+|---|---|---|
+| DATA decode | ~30 ns | ~34 M msg/s |
+| DATA encode | ~82 ns | ~12 M msg/s |
+| DUNA decode | ~29 ns | ~34 M msg/s |
+| ASP-UP decode | ~29 ns | ~34 M msg/s |
+| DATA decode + extract Protocol Data | ~39 ns | ~26 M msg/s |
+
+A counting-allocator [leak check](examples/leak_check.rs)
+(`./scripts/mem_leak_test.sh`) hammers encode/decode and the ASP state machine
+and asserts **live bytes stay flat** (Δ 0 over millions of cycles). Both run in
+CI.
+
+The Python wheel is the same Rust code behind PyO3; per-call overhead is the
+Python↔Rust boundary, not the codec. The module is declared `gil_used = false`,
+so it loads on free-threaded ("no-GIL") CPython 3.13t / 3.14t.
 
 ## Install
 
 ```bash
-cargo add m3ua
+cargo add m3ua          # Rust crate (zero pyo3 in the default build)
+pip install m3ua        # Rust-backed Python wheel
 ```
 
 ## Development
 
 ```bash
 cargo test                                  # unit + integration + doctests
+cargo test --features python                # + the PyO3 binding face
 cargo clippy --all-targets -- -D warnings
+cargo bench --no-run
+./scripts/mem_leak_test.sh                  # live-bytes leak check (PASS/FAIL)
 cargo deny check                            # advisories, licenses, sources
+
+# Python wheel
+maturin develop && pytest python/tests -q
 ```
 
 ## License

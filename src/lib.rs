@@ -34,6 +34,10 @@ pub mod parameter;
 /// The Protocol Data payload ([`ProtocolData`]) carried by DATA messages.
 pub mod protocol_data;
 
+/// PyO3 bindings for the Python wheel (`--features python`).
+#[cfg(feature = "python")]
+pub mod python;
+
 pub use asp::{Asp, AspAction, AspState};
 pub use error::M3uaError;
 pub use header::{CommonHeader, MessageClass, MessageType, SCTP_PPID, VERSION};
