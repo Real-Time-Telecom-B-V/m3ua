@@ -19,12 +19,19 @@
 //! let data = M3uaMessage::data(None, Some(1), pd, None);
 //! let bytes = data.encode();
 //! ```
+#![warn(missing_docs)]
 
+/// SG-side ASP/AS state machine ([`Asp`], [`AspState`], [`AspAction`]).
 pub mod asp;
+/// The typed error returned by decode and validation ([`M3uaError`]).
 pub mod error;
+/// The 8-byte common header, message classes, and message types.
 pub mod header;
+/// Whole M3UA messages ([`M3uaMessage`]) with typed builders and accessors.
 pub mod message;
+/// TLV parameters ([`Parameter`]) and the well-known parameter [`tags`].
 pub mod parameter;
+/// The Protocol Data payload ([`ProtocolData`]) carried by DATA messages.
 pub mod protocol_data;
 
 pub use asp::{Asp, AspAction, AspState};

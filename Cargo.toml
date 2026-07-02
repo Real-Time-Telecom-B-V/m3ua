@@ -1,10 +1,20 @@
 [package]
 name = "m3ua"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
-description = "M3UA (MTP3 User Adaptation Layer) codec per RFC 4666"
+rust-version = "1.80"
+description = "M3UA (MTP3 User Adaptation Layer) codec and SG-side ASP state machine per RFC 4666"
+authors = ["Real Time Telecom B.V."]
 license = "MIT"
-repository = "https://github.com/killdashnine/m3ua"
+readme = "README.md"
+repository = "https://github.com/Real-Time-Telecom-B-V/m3ua"
+homepage = "https://github.com/Real-Time-Telecom-B-V/m3ua"
+keywords = ["m3ua", "ss7", "sigtran", "mtp3", "telecom"]
+categories = ["network-programming"]
+exclude = [".github/", "docs/"]
 
 [dependencies]
 thiserror = "2"
+
+[lints.clippy]
+correctness = { level = "deny", priority = -1 }

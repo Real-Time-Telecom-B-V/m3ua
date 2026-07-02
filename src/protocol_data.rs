@@ -38,17 +38,11 @@ pub struct ProtocolData {
 }
 
 impl ProtocolData {
-    pub const HEADER_SIZE: usize = 12; // OPC(4) + DPC(4) + SI+NI+MP+SLS(4)
+    /// Fixed-header size in octets: OPC(4) + DPC(4) + SI+NI+MP+SLS(4).
+    pub const HEADER_SIZE: usize = 12;
 
-    pub fn new(
-        opc: u32,
-        dpc: u32,
-        si: u8,
-        ni: u8,
-        mp: u8,
-        sls: u8,
-        user_data: Vec<u8>,
-    ) -> Self {
+    /// Build a Protocol Data payload from its routing label and user data.
+    pub fn new(opc: u32, dpc: u32, si: u8, ni: u8, mp: u8, sls: u8, user_data: Vec<u8>) -> Self {
         Self {
             opc,
             dpc,

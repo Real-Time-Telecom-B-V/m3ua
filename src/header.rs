@@ -26,6 +26,9 @@ pub enum MessageClass {
 }
 
 impl MessageClass {
+    /// Map the raw message-class octet to a [`MessageClass`].
+    ///
+    /// Returns [`M3uaError::InvalidMessageClass`] for an unknown value.
     pub fn from_u8(value: u8) -> Result<Self, M3uaError> {
         match value {
             0 => Ok(Self::Management),
@@ -56,33 +59,56 @@ impl fmt::Display for MessageClass {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageType {
     // Management (class 0)
+    /// Error (ERR) — MGMT.
     Error,
+    /// Notify (NTFY) — MGMT.
     Notify,
     // Transfer (class 1)
+    /// Payload data (DATA) — Transfer.
     Data,
     // SSNM (class 2)
+    /// Destination Unavailable (DUNA) — SSNM.
     Duna,
+    /// Destination Available (DAVA) — SSNM.
     Dava,
+    /// Destination State Audit (DAUD) — SSNM.
     Daud,
+    /// Signalling Congestion (SCON) — SSNM.
     Scon,
+    /// Destination User Part Unavailable (DUPU) — SSNM.
     Dupu,
+    /// Destination Restricted (DRST) — SSNM.
     Drst,
     // ASPSM (class 3)
+    /// ASP Up (ASP-UP) — ASPSM.
     AspUp,
+    /// ASP Down (ASP-DOWN) — ASPSM.
     AspDown,
+    /// Heartbeat (BEAT) — ASPSM.
     Heartbeat,
+    /// ASP Up Acknowledgement (ASP-UP-ACK) — ASPSM.
     AspUpAck,
+    /// ASP Down Acknowledgement (ASP-DOWN-ACK) — ASPSM.
     AspDownAck,
+    /// Heartbeat Acknowledgement (BEAT-ACK) — ASPSM.
     HeartbeatAck,
     // ASPTM (class 4)
+    /// ASP Active (ASP-ACTIVE) — ASPTM.
     AspActive,
+    /// ASP Inactive (ASP-INACTIVE) — ASPTM.
     AspInactive,
+    /// ASP Active Acknowledgement (ASP-ACTIVE-ACK) — ASPTM.
     AspActiveAck,
+    /// ASP Inactive Acknowledgement (ASP-INACTIVE-ACK) — ASPTM.
     AspInactiveAck,
     // RKM (class 9)
+    /// Registration Request (REG-REQ) — RKM.
     RegReq,
+    /// Registration Response (REG-RSP) — RKM.
     RegRsp,
+    /// Deregistration Request (DEREG-REQ) — RKM.
     DeregReq,
+    /// Deregistration Response (DEREG-RSP) — RKM.
     DeregRsp,
 }
 
@@ -116,6 +142,9 @@ impl MessageType {
         }
     }
 
+    /// Map a raw `(class, type)` header pair to a [`MessageType`].
+    ///
+    /// Returns [`M3uaError::InvalidMessageType`] for an unknown pair.
     pub fn from_class_type(class: u8, msg_type: u8) -> Result<Self, M3uaError> {
         match (class, msg_type) {
             (0, 0) => Ok(Self::Error),
@@ -141,10 +170,7 @@ impl MessageType {
             (9, 2) => Ok(Self::RegRsp),
             (9, 3) => Ok(Self::DeregReq),
             (9, 4) => Ok(Self::DeregRsp),
-            _ => Err(M3uaError::InvalidMessageType {
-                class,
-                msg_type,
-            }),
+            _ => Err(M3uaError::InvalidMessageType { class, msg_type }),
         }
     }
 }
@@ -193,14 +219,19 @@ impl fmt::Display for MessageType {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CommonHeader {
+    /// Protocol version (always [`VERSION`] = 1).
     pub version: u8,
+    /// The message type (which implies the message class).
     pub message_type: MessageType,
+    /// Total message length in octets, including this 8-byte header.
     pub message_length: u32,
 }
 
 impl CommonHeader {
+    /// Size of the common header in octets.
     pub const SIZE: usize = 8;
 
+    /// Build a header for the given message type and total message length.
     pub fn new(message_type: MessageType, message_length: u32) -> Self {
         Self {
             version: VERSION,
@@ -209,6 +240,10 @@ impl CommonHeader {
         }
     }
 
+    /// Decode a common header from the first [`SIZE`](Self::SIZE) bytes.
+    ///
+    /// Validates the version and the `(class, type)` pair; returns an
+    /// [`M3uaError`] on a short buffer, unknown version, or unknown type.
     pub fn decode(bytes: &[u8]) -> Result<Self, M3uaError> {
         if bytes.len() < Self::SIZE {
             return Err(M3uaError::TooShort {
@@ -235,6 +270,7 @@ impl CommonHeader {
         })
     }
 
+    /// Encode the header to its 8-byte wire representation.
     pub fn encode(&self) -> [u8; 8] {
         let (class, msg_type) = self.message_type.class_and_type();
         let len_bytes = self.message_length.to_be_bytes();
@@ -300,5 +336,67 @@ mod tests {
         assert_eq!(format!("{}", MessageType::Data), "DATA");
         assert_eq!(format!("{}", MessageType::AspUp), "ASPUP");
         assert_eq!(format!("{}", MessageType::AspActiveAck), "ASPAC_ACK");
+    }
+
+    #[test]
+    fn message_class_round_trips() {
+        for (raw, class) in [
+            (0u8, MessageClass::Management),
+            (1, MessageClass::Transfer),
+            (2, MessageClass::Ssnm),
+            (3, MessageClass::Aspsm),
+            (4, MessageClass::Asptm),
+            (9, MessageClass::Rkm),
+        ] {
+            assert_eq!(MessageClass::from_u8(raw).unwrap(), class);
+        }
+        assert!(MessageClass::from_u8(7).is_err());
+    }
+
+    #[test]
+    fn message_type_class_type_round_trips() {
+        // Every variant maps to a (class, type) that maps back to itself.
+        for mt in [
+            MessageType::Error,
+            MessageType::Notify,
+            MessageType::Data,
+            MessageType::Duna,
+            MessageType::Dava,
+            MessageType::Daud,
+            MessageType::Scon,
+            MessageType::Dupu,
+            MessageType::Drst,
+            MessageType::AspUp,
+            MessageType::AspDown,
+            MessageType::Heartbeat,
+            MessageType::AspUpAck,
+            MessageType::AspDownAck,
+            MessageType::HeartbeatAck,
+            MessageType::AspActive,
+            MessageType::AspInactive,
+            MessageType::AspActiveAck,
+            MessageType::AspInactiveAck,
+            MessageType::RegReq,
+            MessageType::RegRsp,
+            MessageType::DeregReq,
+            MessageType::DeregRsp,
+        ] {
+            let (class, ty) = mt.class_and_type();
+            assert_eq!(MessageType::from_class_type(class, ty).unwrap(), mt);
+        }
+        assert!(MessageType::from_class_type(3, 9).is_err());
+    }
+
+    #[test]
+    fn header_display() {
+        let hdr = CommonHeader::new(MessageType::Data, 100);
+        let s = format!("{hdr}");
+        assert!(s.contains("DATA"));
+        assert!(s.contains("length=100"));
+    }
+
+    #[test]
+    fn decode_too_short() {
+        assert!(CommonHeader::decode(&[1, 0, 3]).is_err());
     }
 }

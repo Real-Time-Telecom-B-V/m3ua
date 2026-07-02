@@ -1,28 +1,56 @@
 /// Errors that can occur during M3UA message processing.
 #[derive(Debug, thiserror::Error)]
 pub enum M3uaError {
+    /// The input was shorter than the minimum required to decode this item.
     #[error("message too short: expected at least {expected} bytes, got {actual}")]
-    TooShort { expected: usize, actual: usize },
-
-    #[error("invalid version: expected 1, got {0}")]
-    InvalidVersion(u8),
-
-    #[error("invalid message class: {0}")]
-    InvalidMessageClass(u8),
-
-    #[error("invalid message type: class={class}, type={msg_type}")]
-    InvalidMessageType { class: u8, msg_type: u8 },
-
-    #[error("invalid parameter: tag=0x{tag:04x}, length={length}")]
-    InvalidParameter { tag: u16, length: u16 },
-
-    #[error("parameter too short: tag=0x{tag:04x}, expected at least {expected} bytes, got {actual}")]
-    ParameterTooShort {
-        tag: u16,
+    TooShort {
+        /// Minimum number of bytes required.
         expected: usize,
+        /// Number of bytes actually available.
         actual: usize,
     },
 
+    /// The header carried a version other than the supported M3UA version (1).
+    #[error("invalid version: expected 1, got {0}")]
+    InvalidVersion(u8),
+
+    /// The header carried a message class not defined by RFC 4666.
+    #[error("invalid message class: {0}")]
+    InvalidMessageClass(u8),
+
+    /// The `(class, type)` pair does not correspond to a known message type.
+    #[error("invalid message type: class={class}, type={msg_type}")]
+    InvalidMessageType {
+        /// The message class octet from the header.
+        class: u8,
+        /// The message type octet from the header.
+        msg_type: u8,
+    },
+
+    /// A parameter's declared length was invalid (e.g. smaller than the 4-byte
+    /// tag+length header).
+    #[error("invalid parameter: tag=0x{tag:04x}, length={length}")]
+    InvalidParameter {
+        /// The parameter tag.
+        tag: u16,
+        /// The declared parameter length (including the 4-byte header).
+        length: u16,
+    },
+
+    /// A parameter's declared length ran past the end of the available bytes.
+    #[error(
+        "parameter too short: tag=0x{tag:04x}, expected at least {expected} bytes, got {actual}"
+    )]
+    ParameterTooShort {
+        /// The parameter tag.
+        tag: u16,
+        /// Minimum number of bytes required for the declared length.
+        expected: usize,
+        /// Number of bytes actually available.
+        actual: usize,
+    },
+
+    /// A required parameter (identified by its tag) was absent from the message.
     #[error("missing required parameter: tag=0x{0:04x}")]
     MissingParameter(u16),
 }

@@ -8,11 +8,16 @@ use crate::protocol_data::ProtocolData;
 /// A decoded M3UA message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct M3uaMessage {
+    /// The message type (which implies the message class).
     pub message_type: MessageType,
+    /// The message's TLV parameters, in wire order.
     pub parameters: Vec<Parameter>,
 }
 
 impl M3uaMessage {
+    /// Build a message directly from a type and a list of parameters.
+    ///
+    /// Prefer the typed builders (`asp_up`, `data`, `duna`, …) where one exists.
     pub fn new(message_type: MessageType, parameters: Vec<Parameter>) -> Self {
         Self {
             message_type,
@@ -197,7 +202,11 @@ impl M3uaMessage {
     }
 
     /// Create an ERR message.
-    pub fn error(error_code: u32, routing_context: Option<u32>, diagnostic_info: Option<Vec<u8>>) -> Self {
+    pub fn error(
+        error_code: u32,
+        routing_context: Option<u32>,
+        diagnostic_info: Option<Vec<u8>>,
+    ) -> Self {
         let mut params = Vec::new();
         params.push(Parameter::from_u32(tags::ERROR_CODE, error_code));
         if let Some(rc) = routing_context {
@@ -231,8 +240,7 @@ impl M3uaMessage {
 
     /// Extract the Routing Context value, if present.
     pub fn routing_context(&self) -> Option<u32> {
-        parameter::find_parameter(&self.parameters, tags::ROUTING_CONTEXT)
-            .and_then(|p| p.as_u32())
+        parameter::find_parameter(&self.parameters, tags::ROUTING_CONTEXT).and_then(|p| p.as_u32())
     }
 
     /// Decode a complete M3UA message from bytes.
@@ -342,7 +350,8 @@ mod tests {
         let decoded = M3uaMessage::decode(&encoded).unwrap();
         assert_eq!(decoded.message_type, MessageType::Duna);
 
-        let apc = parameter::find_parameter(&decoded.parameters, tags::AFFECTED_POINT_CODE).unwrap();
+        let apc =
+            parameter::find_parameter(&decoded.parameters, tags::AFFECTED_POINT_CODE).unwrap();
         assert_eq!(apc.value.len(), 12); // 3 point codes × 4 bytes
     }
 
@@ -359,5 +368,28 @@ mod tests {
         let msg = M3uaMessage::asp_up(Some(1), None);
         let s = format!("{msg}");
         assert!(s.contains("ASPUP"));
+    }
+
+    #[test]
+    fn protocol_data_missing_errors() {
+        // A NTFY has no Protocol Data parameter.
+        let msg = M3uaMessage::notify(0, None, None);
+        assert!(matches!(
+            msg.protocol_data(),
+            Err(M3uaError::MissingParameter(tags::PROTOCOL_DATA))
+        ));
+    }
+
+    #[test]
+    fn affected_point_codes_empty_when_absent() {
+        // ASP-UP carries no Affected Point Code parameter.
+        let msg = M3uaMessage::asp_up(None, None);
+        assert!(msg.affected_point_codes().is_empty());
+    }
+
+    #[test]
+    fn routing_context_none_when_absent() {
+        let msg = M3uaMessage::asp_up(None, None);
+        assert_eq!(msg.routing_context(), None);
     }
 }

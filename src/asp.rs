@@ -5,26 +5,21 @@
 //! (ASP-UP → ASP-UP-ACK, ASP-ACTIVE → ASP-ACTIVE-ACK) before exchanging
 //! DATA (RFC 4666 §4–5). This is the **pure** state machine: given an inbound
 //! message it updates state and yields the action the transport must take.
-//! No sockets here, so it is unit-tested in isolation; the live loop in
-//! `m3ua-sctp` drives it.
+//! No sockets here, so it is unit-tested in isolation; a transport layer that
+//! owns the SCTP association drives it.
 
 use crate::{M3uaMessage, MessageType};
 
 /// ASP traffic-maintenance state from the SG's point of view.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AspState {
     /// No relationship yet (pre ASP-UP).
+    #[default]
     Down,
     /// ASP is UP (ASPSM complete) but not carrying traffic.
     Inactive,
     /// ASP is ACTIVE — DATA may flow.
     Active,
-}
-
-impl Default for AspState {
-    fn default() -> Self {
-        AspState::Down
-    }
 }
 
 /// What the transport should do in response to an inbound message.
@@ -45,10 +40,14 @@ pub struct Asp {
 }
 
 impl Asp {
+    /// Create a state machine in the initial [`AspState::Down`] state.
     pub fn new() -> Self {
-        Self { state: AspState::Down }
+        Self {
+            state: AspState::Down,
+        }
     }
 
+    /// The current traffic-maintenance state.
     pub fn state(&self) -> AspState {
         self.state
     }
@@ -106,7 +105,12 @@ mod tests {
     #[test]
     fn data_delivers_only_when_active() {
         let mut asp = Asp::new();
-        let data = M3uaMessage::data(None, None, ProtocolData::new(1, 2, 3, 2, 0, 0, vec![]), None);
+        let data = M3uaMessage::data(
+            None,
+            None,
+            ProtocolData::new(1, 2, 3, 2, 0, 0, vec![]),
+            None,
+        );
 
         // Down → DATA is out of state, ignored.
         assert!(matches!(asp.handle(&data), AspAction::Ignore));
@@ -119,7 +123,10 @@ mod tests {
     #[test]
     fn heartbeat_is_acked() {
         let mut asp = Asp::new();
-        assert!(is_reply(&asp.handle(&M3uaMessage::heartbeat(None)), MessageType::HeartbeatAck));
+        assert!(is_reply(
+            &asp.handle(&M3uaMessage::heartbeat(None)),
+            MessageType::HeartbeatAck
+        ));
     }
 
     #[test]

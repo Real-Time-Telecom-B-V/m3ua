@@ -9,11 +9,14 @@ fn aspup_wire_format() {
     let bytes = msg.encode();
 
     // Header: version=1, reserved=0, class=3 (ASPSM), type=1 (ASPUP), length=8
-    assert_eq!(bytes[0], 1);  // version
-    assert_eq!(bytes[1], 0);  // reserved
-    assert_eq!(bytes[2], 3);  // class ASPSM
-    assert_eq!(bytes[3], 1);  // type ASPUP
-    assert_eq!(u32::from_be_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]), 8); // length
+    assert_eq!(bytes[0], 1); // version
+    assert_eq!(bytes[1], 0); // reserved
+    assert_eq!(bytes[2], 3); // class ASPSM
+    assert_eq!(bytes[3], 1); // type ASPUP
+    assert_eq!(
+        u32::from_be_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+        8
+    ); // length
 }
 
 /// Verify ASPUP ACK wire format.
@@ -46,11 +49,12 @@ fn aspac_with_params() {
 #[test]
 fn data_protocol_data_encoding() {
     let pd = ProtocolData::new(
-        100, 200,
-        3,   // SI = SCCP
-        2,   // NI = National
-        0,   // MP
-        5,   // SLS
+        100,
+        200,
+        3,                      // SI = SCCP
+        2,                      // NI = National
+        0,                      // MP
+        5,                      // SLS
         vec![0x09, 0x00, 0x03], // SCCP UDT stub
     );
     let msg = M3uaMessage::data(Some(1), Some(42), pd, Some(999));
@@ -156,7 +160,8 @@ fn beat_with_data_wire() {
     let ack = M3uaMessage::heartbeat_ack(Some(data.clone()));
     let ack_bytes = ack.encode();
     let decoded_ack = M3uaMessage::decode(&ack_bytes).unwrap();
-    let ack_data = parameter::find_parameter(&decoded_ack.parameters, tags::HEARTBEAT_DATA).unwrap();
+    let ack_data =
+        parameter::find_parameter(&decoded_ack.parameters, tags::HEARTBEAT_DATA).unwrap();
     assert_eq!(ack_data.value, data);
 }
 
@@ -172,4 +177,84 @@ fn parameter_padding_alignment() {
     let encoded2 = param2.encode();
     assert_eq!(encoded2.len(), 12); // 4 header + 5 value + 3 pad
     assert_eq!(encoded2.len() % 4, 0);
+}
+
+/// DAVA / DAUD round-trip and their affected-point-code accessor.
+#[test]
+fn dava_daud_affected_point_codes() {
+    for msg in [
+        M3uaMessage::dava(Some(7), vec![0x0000_0201, 0x0000_0202]),
+        M3uaMessage::daud(Some(7), vec![0x0000_0201, 0x0000_0202]),
+    ] {
+        let decoded = M3uaMessage::decode(&msg.encode()).unwrap();
+        assert_eq!(decoded.routing_context(), Some(7));
+        assert_eq!(
+            decoded.affected_point_codes(),
+            vec![0x0000_0201, 0x0000_0202]
+        );
+    }
+}
+
+/// ASP-INACTIVE and its ACK round-trip, preserving the routing context.
+#[test]
+fn asp_inactive_round_trip() {
+    let msg = M3uaMessage::asp_inactive(Some(100));
+    let decoded = M3uaMessage::decode(&msg.encode()).unwrap();
+    assert_eq!(decoded.message_type, MessageType::AspInactive);
+    assert_eq!(decoded.routing_context(), Some(100));
+
+    let ack = M3uaMessage::asp_inactive_ack(Some(100));
+    let decoded_ack = M3uaMessage::decode(&ack.encode()).unwrap();
+    assert_eq!(decoded_ack.message_type, MessageType::AspInactiveAck);
+    assert_eq!(decoded_ack.routing_context(), Some(100));
+}
+
+/// Message-class / message-type mapping validation via the header decoder.
+#[test]
+fn header_rejects_unknown_class_and_type() {
+    // Unknown class 0x08 (only 0..=4 and 9 are defined).
+    let unknown_class = [0x01, 0x00, 0x08, 0x01, 0x00, 0x00, 0x00, 0x08];
+    assert!(M3uaMessage::decode(&unknown_class).is_err());
+
+    // Known class (ASPSM=3) but undefined type 0x09.
+    let unknown_type = [0x01, 0x00, 0x03, 0x09, 0x00, 0x00, 0x00, 0x08];
+    assert!(M3uaMessage::decode(&unknown_type).is_err());
+}
+
+/// Decoding a truncated message (fewer than the 8 header bytes) errors cleanly.
+#[test]
+fn decode_truncated_message() {
+    assert!(M3uaMessage::decode(&[0x01, 0x00, 0x03]).is_err());
+}
+
+/// A DATA accessor on a message lacking Protocol Data reports the missing tag.
+#[test]
+fn missing_protocol_data_is_reported() {
+    // ASP-UP carries no Protocol Data parameter.
+    let msg = M3uaMessage::asp_up(None, None);
+    assert!(msg.protocol_data().is_err());
+}
+
+/// A parameter whose declared length is below the 4-byte minimum is rejected.
+#[test]
+fn parameter_invalid_length_rejected() {
+    // tag=0x0006, length=0x0002 (illegal: < 4).
+    let bad = [0x00, 0x06, 0x00, 0x02];
+    assert!(Parameter::decode(&bad).is_err());
+}
+
+/// A parameter whose declared length runs past the buffer is rejected.
+#[test]
+fn parameter_length_past_buffer_rejected() {
+    // tag=0x0006, length=0x0010 (16) but only 4 bytes present.
+    let bad = [0x00, 0x06, 0x00, 0x10];
+    assert!(Parameter::decode(&bad).is_err());
+}
+
+/// `wire_length` reports the padded on-wire size.
+#[test]
+fn parameter_wire_length_matches_encoding() {
+    let p = Parameter::new(tags::INFO_STRING, b"abc".to_vec()); // 3 → pad to 4
+    assert_eq!(p.wire_length(), p.encode().len());
+    assert_eq!(p.wire_length(), 8);
 }

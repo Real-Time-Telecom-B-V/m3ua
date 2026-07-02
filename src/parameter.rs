@@ -4,29 +4,53 @@ use crate::error::M3uaError;
 
 /// Well-known M3UA parameter tags (RFC 4666 Section 3.2).
 pub mod tags {
+    /// Info String (common) — a human-readable diagnostic string.
     pub const INFO_STRING: u16 = 0x0004;
+    /// Routing Context — identifies the Application Server / routing key.
     pub const ROUTING_CONTEXT: u16 = 0x0006;
+    /// Diagnostic Information (common) — carried in ERR / NTFY.
     pub const DIAGNOSTIC_INFO: u16 = 0x0007;
+    /// Heartbeat Data — opaque data echoed in BEAT / BEAT-ACK.
     pub const HEARTBEAT_DATA: u16 = 0x0009;
+    /// Traffic Mode Type — Override / Loadshare / Broadcast.
     pub const TRAFFIC_MODE_TYPE: u16 = 0x000B;
+    /// Error Code — carried in ERR.
     pub const ERROR_CODE: u16 = 0x000C;
+    /// Status — status type + status information, carried in NTFY.
     pub const STATUS: u16 = 0x000D;
+    /// ASP Identifier — a unique value identifying the ASP.
     pub const ASP_IDENTIFIER: u16 = 0x0011;
+    /// Affected Point Code — one or more affected point codes (SSNM).
     pub const AFFECTED_POINT_CODE: u16 = 0x0012;
+    /// Correlation Id — correlates DATA messages during a changeover.
     pub const CORRELATION_ID: u16 = 0x0013;
+    /// Network Appearance — distinguishes SS7 network contexts at the SG.
     pub const NETWORK_APPEARANCE: u16 = 0x0200;
+    /// User / Cause — the unavailable user part and cause (DUPU).
     pub const USER_CAUSE: u16 = 0x0204;
+    /// Congestion Indications — congestion level (SCON).
     pub const CONGESTION_INDICATIONS: u16 = 0x0205;
+    /// Concerned Destination — the point code concerned by a DUPU.
     pub const CONCERNED_DESTINATION: u16 = 0x0206;
+    /// Routing Key — the routing key registered via RKM.
     pub const ROUTING_KEY: u16 = 0x0207;
+    /// Registration Result — the result of a REG-REQ.
     pub const REGISTRATION_RESULT: u16 = 0x0208;
+    /// Deregistration Result — the result of a DEREG-REQ.
     pub const DEREGISTRATION_RESULT: u16 = 0x0209;
+    /// Local Routing Key Identifier — an ASP-local routing-key handle.
     pub const LOCAL_ROUTING_KEY_ID: u16 = 0x020A;
+    /// Destination Point Code — part of a routing key.
     pub const DESTINATION_POINT_CODE: u16 = 0x020B;
+    /// Service Indicators — the SIs matched by a routing key.
     pub const SERVICE_INDICATORS: u16 = 0x020C;
+    /// Originating Point Code List — OPCs matched by a routing key.
     pub const ORIGINATING_POINT_CODE_LIST: u16 = 0x020E;
+    /// Protocol Data — the MTP3-User payload carried by DATA (see [`ProtocolData`](crate::ProtocolData)).
     pub const PROTOCOL_DATA: u16 = 0x0210;
+    /// Registration Status — per-routing-key status in a REG-RSP.
     pub const REGISTRATION_STATUS: u16 = 0x0212;
+    /// Deregistration Status — per-routing-context status in a DEREG-RSP.
     pub const DEREGISTRATION_STATUS: u16 = 0x0213;
 }
 
@@ -49,11 +73,14 @@ pub mod tags {
 /// Value is padded to a 4-byte boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Parameter {
+    /// The parameter tag (see the [`tags`] module for well-known values).
     pub tag: u16,
+    /// The parameter value, unpadded (padding is applied only on the wire).
     pub value: Vec<u8>,
 }
 
 impl Parameter {
+    /// Build a parameter from a tag and its (unpadded) value bytes.
     pub fn new(tag: u16, value: Vec<u8>) -> Self {
         Self { tag, value }
     }
@@ -123,7 +150,7 @@ impl Parameter {
         buf.extend_from_slice(&self.value);
         // Pad to 4-byte boundary
         let pad = (4 - (self.value.len() % 4)) % 4;
-        buf.extend(std::iter::repeat_n(0u8, pad));
+        buf.resize(buf.len() + pad, 0u8);
         buf
     }
 
@@ -251,5 +278,32 @@ mod tests {
         let param = Parameter::from_u32(tags::ROUTING_CONTEXT, 1);
         let s = format!("{param}");
         assert!(s.contains("Routing Context"));
+    }
+
+    #[test]
+    fn as_u32_none_when_too_short() {
+        // A 3-byte value cannot yield a u32.
+        let param = Parameter::new(tags::ROUTING_CONTEXT, vec![1, 2, 3]);
+        assert_eq!(param.as_u32(), None);
+    }
+
+    #[test]
+    fn decode_rejects_short_and_bad_length() {
+        // Fewer than 4 bytes: no room for a tag+length header.
+        assert!(Parameter::decode(&[0x00, 0x06]).is_err());
+        // Declared length < 4 is illegal.
+        assert!(Parameter::decode(&[0x00, 0x06, 0x00, 0x02]).is_err());
+        // Declared length overruns the buffer.
+        assert!(Parameter::decode(&[0x00, 0x06, 0x00, 0x10]).is_err());
+    }
+
+    #[test]
+    fn decode_parameters_ignores_trailing_stray_bytes() {
+        // One well-formed 8-byte parameter, then 2 stray bytes (< a header).
+        let mut bytes = Parameter::from_u32(tags::ROUTING_CONTEXT, 1).encode();
+        bytes.extend_from_slice(&[0xAA, 0xBB]);
+        let params = decode_parameters(&bytes).unwrap();
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0].as_u32(), Some(1));
     }
 }
