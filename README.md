@@ -82,8 +82,8 @@ assert m3ua.decode(data.encode()).protocol_data().dpc == 200
 | Transfer — `DATA` with Protocol Data (OPC/DPC/SI/NI/MP/SLS + user data) | ✅ `ProtocolData` |
 | ASPSM — `ASP-UP` / `ASP-DOWN` / `BEAT` (+ their ACKs) | ✅ builders + state machine |
 | ASPTM — `ASP-ACTIVE` / `ASP-INACTIVE` (+ their ACKs) | ✅ builders + state machine |
-| SSNM — `DUNA` / `DAVA` / `DAUD` / `SCON` / `DUPU` / `DRST` | ✅ types; builders for DUNA/DAVA/DAUD |
-| MGMT — `ERR` / `NTFY` | ✅ builders |
+| SSNM — `DUNA` / `DAVA` / `DAUD` / `SCON` / `DUPU` / `DRST` | ✅ builders + accessors (mask, congestion level, concerned destination, user/cause) |
+| MGMT — `ERR` / `NTFY` | ✅ builders + accessors, error code and status tables |
 | RKM — `REG-REQ` / `REG-RSP` / `DEREG-REQ` / `DEREG-RSP` | ✅ types + tags |
 | TLV parameters — tag/length, value padded to a 4-byte boundary | ✅ `Parameter` |
 | SG-side ASP state machine (Down → Inactive → Active) | ✅ `Asp` |
