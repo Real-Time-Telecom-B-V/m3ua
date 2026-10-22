@@ -201,6 +201,228 @@ impl M3uaMessage {
         }
     }
 
+    /// Create a SCON (Signalling Congestion) message (RFC 4666 3.4.4).
+    ///
+    /// `concerned_destination` is only used from an ASP to an SGP: the point
+    /// code of the originator of the message that triggered the SCON.
+    /// `congestion_level` is left out for congestion methods without levels
+    /// (the ITU international method).
+    pub fn scon(
+        routing_context: Option<u32>,
+        affected_pcs: Vec<u32>,
+        concerned_destination: Option<u32>,
+        congestion_level: Option<u8>,
+    ) -> Self {
+        let mut params = Vec::new();
+        if let Some(rc) = routing_context {
+            params.push(Parameter::from_u32(tags::ROUTING_CONTEXT, rc));
+        }
+        params.push(Self::affected(&affected_pcs));
+        if let Some(pc) = concerned_destination {
+            params.push(Parameter::from_u32(
+                tags::CONCERNED_DESTINATION,
+                pc & 0x00FF_FFFF,
+            ));
+        }
+        if let Some(level) = congestion_level {
+            params.push(Parameter::from_u32(
+                tags::CONGESTION_INDICATIONS,
+                u32::from(level),
+            ));
+        }
+        Self::new(MessageType::Scon, params)
+    }
+
+    /// Create a DUPU (Destination User Part Unavailable) message (RFC 4666
+    /// 3.4.5): one affected point code, the unavailability cause and the
+    /// MTP3-User identity.
+    pub fn dupu(routing_context: Option<u32>, affected_pc: u32, cause: u16, user: u16) -> Self {
+        let mut params = Vec::new();
+        if let Some(rc) = routing_context {
+            params.push(Parameter::from_u32(tags::ROUTING_CONTEXT, rc));
+        }
+        // "the Mask field is not used and only a single Affected DPC is
+        // included".
+        params.push(Self::affected(&[affected_pc & 0x00FF_FFFF]));
+        params.push(Parameter::from_u32(
+            tags::USER_CAUSE,
+            (u32::from(cause) << 16) | u32::from(user),
+        ));
+        Self::new(MessageType::Dupu, params)
+    }
+
+    /// Create a DRST (Destination Restricted) message (RFC 4666 3.4.6).
+    pub fn drst(routing_context: Option<u32>, affected_pcs: Vec<u32>) -> Self {
+        let mut params = Vec::new();
+        if let Some(rc) = routing_context {
+            params.push(Parameter::from_u32(tags::ROUTING_CONTEXT, rc));
+        }
+        params.push(Self::affected(&affected_pcs));
+        Self::new(MessageType::Drst, params)
+    }
+
+    /// The Affected Point Code parameter for a list of entries, each a mask
+    /// octet above a 24-bit point code.
+    fn affected(entries: &[u32]) -> Parameter {
+        let mut value = Vec::with_capacity(entries.len() * 4);
+        for entry in entries {
+            value.extend_from_slice(&entry.to_be_bytes());
+        }
+        Parameter::new(tags::AFFECTED_POINT_CODE, value)
+    }
+
+    /// The entries of the Affected Point Code parameter as `(mask, point
+    /// code)` (RFC 4666 3.4.1): the mask says how many low bits of the point
+    /// code are wildcarded. Octets after the last whole entry are left out;
+    /// see [`affected_point_code_octets`](Self::affected_point_code_octets).
+    pub fn affected_destinations(&self) -> Vec<(u8, u32)> {
+        match parameter::find_parameter(&self.parameters, tags::AFFECTED_POINT_CODE) {
+            Some(p) => p
+                .value
+                .chunks_exact(4)
+                .map(|c| (c[0], u32::from_be_bytes([0, c[1], c[2], c[3]])))
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+
+    /// The length in octets of the Affected Point Code value, if the
+    /// parameter is present. A value that is not a multiple of 4 is a
+    /// parameter with a wrong length field.
+    pub fn affected_point_code_octets(&self) -> Option<usize> {
+        parameter::find_parameter(&self.parameters, tags::AFFECTED_POINT_CODE)
+            .map(|p| p.value.len())
+    }
+
+    /// Every value of the Routing Context parameter, which is a list (RFC
+    /// 4666 3.7.1: "n X 32-bit integers"). Empty when the parameter is absent.
+    pub fn routing_contexts(&self) -> Vec<u32> {
+        match parameter::find_parameter(&self.parameters, tags::ROUTING_CONTEXT) {
+            Some(p) => p
+                .value
+                .chunks_exact(4)
+                .map(|c| u32::from_be_bytes([c[0], c[1], c[2], c[3]]))
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+
+    /// The length in octets of the Routing Context value, if the parameter is
+    /// present. A value that is not a multiple of 4 is a parameter with a
+    /// wrong length field.
+    pub fn routing_context_octets(&self) -> Option<usize> {
+        parameter::find_parameter(&self.parameters, tags::ROUTING_CONTEXT).map(|p| p.value.len())
+    }
+
+    /// Replace the Routing Context parameter with this list of contexts, in
+    /// the place the parameter had, or after the other parameters when there
+    /// was none. An empty list removes the parameter.
+    pub fn with_routing_contexts(mut self, contexts: &[u32]) -> Self {
+        let place = self
+            .parameters
+            .iter()
+            .position(|p| p.tag == tags::ROUTING_CONTEXT);
+        self.parameters.retain(|p| p.tag != tags::ROUTING_CONTEXT);
+        if contexts.is_empty() {
+            return self;
+        }
+        let mut value = Vec::with_capacity(contexts.len() * 4);
+        for context in contexts {
+            value.extend_from_slice(&context.to_be_bytes());
+        }
+        let parameter = Parameter::new(tags::ROUTING_CONTEXT, value);
+        // Diagnostic Information and INFO String stay last, as the figures
+        // have them.
+        let place = place.unwrap_or_else(|| {
+            self.parameters
+                .iter()
+                .position(|p| p.tag == tags::DIAGNOSTIC_INFO || p.tag == tags::INFO_STRING)
+                .unwrap_or(self.parameters.len())
+        });
+        self.parameters
+            .insert(place.min(self.parameters.len()), parameter);
+        self
+    }
+
+    /// A 32-bit parameter value, when the parameter is present and four
+    /// octets long.
+    fn exact_u32(&self, tag: u16) -> Option<u32> {
+        parameter::find_parameter(&self.parameters, tag)
+            .filter(|p| p.value.len() == 4)
+            .and_then(|p| p.as_u32())
+    }
+
+    /// The Traffic Mode Type of an ASP Active or its acknowledgement (RFC
+    /// 4666 3.7.1); see [`traffic_mode`](crate::traffic_mode).
+    pub fn traffic_mode_type(&self) -> Option<u32> {
+        self.exact_u32(tags::TRAFFIC_MODE_TYPE)
+    }
+
+    /// The ASP Identifier of an ASP Up or a Notify (RFC 4666 3.5.1).
+    pub fn asp_identifier(&self) -> Option<u32> {
+        self.exact_u32(tags::ASP_IDENTIFIER)
+    }
+
+    /// The Heartbeat Data of a BEAT or BEAT Ack (RFC 4666 3.5.5), which the
+    /// acknowledgement returns unchanged.
+    pub fn heartbeat_data(&self) -> Option<&[u8]> {
+        parameter::find_parameter(&self.parameters, tags::HEARTBEAT_DATA)
+            .map(|p| p.value.as_slice())
+    }
+
+    /// The Error Code of an Error message (RFC 4666 3.8.1); see
+    /// [`error_code`](crate::error_code).
+    pub fn error_code(&self) -> Option<u32> {
+        self.exact_u32(tags::ERROR_CODE)
+    }
+
+    /// The Diagnostic Information of an Error message (RFC 4666 3.8.1).
+    pub fn diagnostic_info(&self) -> Option<&[u8]> {
+        parameter::find_parameter(&self.parameters, tags::DIAGNOSTIC_INFO)
+            .map(|p| p.value.as_slice())
+    }
+
+    /// The Status of a Notify as `(status type, status information)` (RFC
+    /// 4666 3.8.2); see [`status`](crate::status).
+    pub fn status(&self) -> Option<(u16, u16)> {
+        self.exact_u32(tags::STATUS)
+            .map(|v| ((v >> 16) as u16, v as u16))
+    }
+
+    /// The Congestion Level of a SCON (RFC 4666 3.4.4), 0 to 3.
+    pub fn congestion_level(&self) -> Option<u8> {
+        self.exact_u32(tags::CONGESTION_INDICATIONS)
+            .map(|v| v as u8)
+    }
+
+    /// The Concerned Destination of a SCON sent by an ASP (RFC 4666 3.4.4):
+    /// the point code the resulting transfer-controlled goes to.
+    pub fn concerned_destination(&self) -> Option<u32> {
+        self.exact_u32(tags::CONCERNED_DESTINATION)
+            .map(|v| v & 0x00FF_FFFF)
+    }
+
+    /// The User/Cause of a DUPU as `(cause, user)` (RFC 4666 3.4.5).
+    pub fn user_cause(&self) -> Option<(u16, u16)> {
+        self.exact_u32(tags::USER_CAUSE)
+            .map(|v| ((v >> 16) as u16, v as u16))
+    }
+
+    /// Create a NTFY message from the two halves of its Status (RFC 4666
+    /// 3.8.2); see [`status`](crate::status).
+    pub fn notify_status(
+        status_type: u16,
+        status_information: u16,
+        asp_id: Option<u32>,
+        routing_context: Option<u32>,
+    ) -> Self {
+        Self::notify(
+            (u32::from(status_type) << 16) | u32::from(status_information),
+            asp_id,
+            routing_context,
+        )
+    }
+
     /// Create an ERR message.
     pub fn error(
         error_code: u32,

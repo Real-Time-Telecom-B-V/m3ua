@@ -23,6 +23,9 @@
 
 /// SG-side ASP/AS state machine ([`Asp`], [`AspState`], [`AspAction`]).
 pub mod asp;
+/// The value tables of the Error Code, Status and Traffic Mode Type
+/// parameters ([`error_code`], [`status`], [`traffic_mode`]).
+pub mod codes;
 /// The typed error returned by decode and validation ([`M3uaError`]).
 pub mod error;
 /// The 8-byte common header, message classes, and message types.
@@ -39,6 +42,7 @@ pub mod protocol_data;
 pub mod python;
 
 pub use asp::{Asp, AspAction, AspState};
+pub use codes::{error_code, status, traffic_mode};
 pub use error::M3uaError;
 pub use header::{CommonHeader, MessageClass, MessageType, SCTP_PPID, VERSION};
 pub use message::M3uaMessage;
